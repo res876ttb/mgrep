@@ -80,7 +80,6 @@ class FilesIter:
 # Load all files into memory
 #############################################
 print('Searching files...')
-
 if args.path:
   os.chdir(args.path)
 
@@ -91,7 +90,7 @@ for dirPath, dirNames, fileNames in os.walk('.'):
   dirNames[:] = [d for d in dirNames if d not in excepts]
   for f in fileNames:
     paths.append(os.path.join(dirPath, f))
-
+paths.sort()
 print('Search files... Done')
 
 def readFile(filePath):
@@ -135,15 +134,6 @@ def searchWithLine(args):
 def search(inp, pattern):
   fitr = FilesIter(files, paths, pattern)
   with multiprocessing.Pool(os.cpu_count()) as pool:
-    matchPaths = []
-    for match, path in pool.imap_unordered(searchFirstPattern, fitr, chunkSize):
-      if match:
-        matchPaths.append(path)
-
-  matchPaths.sort()
-
-  fitr = FilesIter(files, matchPaths, pattern)
-  with multiprocessing.Pool(os.cpu_count()) as pool:
     result = []
     for r in pool.imap_unordered(searchWithLine, fitr, chunkSize):
       result += r
@@ -172,9 +162,9 @@ def search(inp, pattern):
 #############################################
 print('All codes have been loaded.')
 print('\nUsage:')
-print('`/` + the string you want to search.')
+print('Type the string you want to search.')
 print('`:` + mgrep command.')
-print('`:help` to exit.')
+print('`:exit` to exit.')
 
 cmd_history = []
 while True:
