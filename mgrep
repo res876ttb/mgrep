@@ -1,0 +1,194 @@
+#!/usr/bin/python3
+
+import os
+import argparse
+import multiprocessing
+import time
+import sys
+import re
+import math
+from tqdm import tqdm
+
+#############################################
+# Argparse
+#############################################
+
+parser = argparse.ArgumentParser()
+parser.add_argument('path', help='The path to start pgrep.', nargs='?')
+args = parser.parse_args()
+
+#############################################
+# Global Variables
+#############################################
+
+class Color:
+  def __init__(self):
+    self.BLUE = '\033[94m'
+    self.BOLD = '\033[1m'
+    self.BPINK = '\033[45m'
+    self.CYAN = '\033[96m'
+    self.ENDC = '\033[0m'
+    self.GREEN = '\033[92m'
+    self.PINK = '\033[95m'
+    self.RED = '\033[91m'
+    self.UNDERLINE = '\033[4m'
+    self.YELLOW = '\033[93m'
+
+  def red(self, string):
+    return self.RED + string + self.ENDC
+
+  def green(self, string):
+    return self.GREEN + string + self.ENDC
+
+  def pink(self, string):
+    return self.PINK + string + self.ENDC
+
+  def cyan(self, string):
+    return self.CYAN + string + self.ENDC
+
+  def blue(self, string):
+    return self.BLUE + string + self.ENDC
+
+  def yellow(self, string):
+    return self.YELLOW + string + self.ENDC
+
+  def bold(self, string):
+    return self.BOLD + string + self.ENDC
+
+  def underline(self, string):
+    return self.UNDERLINE + string + self.ENDC
+  
+  def bpink(self, string):
+    return self.BPINK + string + self.ENDC
+
+color = Color()
+
+#############################################
+# Data Structure
+#############################################
+class FilesIter:
+  def __init__(self, files, paths, pattern):
+    self.files = files
+    self.paths = paths
+    self.pattern = pattern
+  
+  def __iter__(self):
+    for path in self.paths:
+      yield(self.pattern, self.files[path], path)
+
+#############################################
+# Load all files into memory
+#############################################
+print('Searching files...')
+
+if args.path:
+  os.chdir(args.path)
+
+files = {}
+paths = []
+excepts = ['.git', '.github', '.repo']
+for dirPath, dirNames, fileNames in os.walk('.'):
+  dirNames[:] = [d for d in dirNames if d not in excepts]
+  for f in fileNames:
+    paths.append(os.path.join(dirPath, f))
+
+print('Search files... Done')
+
+def readFile(filePath):
+  content = None
+  try:
+    with open(filePath, 'r') as fp:
+      content = fp.read()
+  except:
+    content = '%s is a binary file.' % filePath
+  return filePath, content
+
+with multiprocessing.Pool(8) as pool:
+  for path, content in tqdm(pool.imap_unordered(readFile, paths, 50), total=len(paths)):
+    files[path] = content
+
+chunkSize = min(50, math.ceil(len(paths) / 8))
+
+#############################################
+# Search Engine
+#############################################
+def searchFirstPattern(args):
+  (pattern, content, path) = args
+  if pattern.finditer(content):
+    return True, path
+  return False, path
+
+def searchWithLine(args):
+  (pattern, content, path) = args
+  content = content.split('\n')[:-1]
+  res = []
+
+  def formatResult(matchObj):
+    return color.bpink(matchObj[0])
+
+  for lineNum, line in enumerate(content, 1):
+    if pattern.search(line):
+      line = pattern.sub(formatResult, line)
+      res.append('%s %s %s' % (color.pink(path), color.green(":%d:" % lineNum), line))
+  return res
+
+def search(inp, pattern):
+  fitr = FilesIter(files, paths, pattern)
+  with multiprocessing.Pool(os.cpu_count()) as pool:
+    matchPaths = []
+    for match, path in pool.imap_unordered(searchFirstPattern, fitr, chunkSize):
+      if match:
+        matchPaths.append(path)
+
+  matchPaths.sort()
+
+  fitr = FilesIter(files, matchPaths, pattern)
+  with multiprocessing.Pool(os.cpu_count()) as pool:
+    result = []
+    for r in pool.imap_unordered(searchWithLine, fitr, chunkSize):
+      result += r
+  
+  return result
+
+#############################################
+# Print Engine
+#############################################
+
+
+#############################################
+# Developing Convenience
+#############################################
+# inp='/potentially'
+# t1 = time.time()
+# result = search(inp[1:], re.compile(inp[1:], flags=re.IGNORECASE))
+# t2 = time.time()
+# for line in result:
+#   print(line)
+# print('%d results in %.2f seconds' % (len(result), t2 - t1))
+# exit()
+
+#############################################
+# User Interface
+#############################################
+print('All codes have been loaded.')
+print('\nUsage:')
+print('`/` + the string you want to search.')
+print('`:` + mgrep command.')
+print('`:help` to exit.')
+
+cmd_history = []
+while True:
+  # Input need some optimization: https://stackoverflow.com/questions/61288221/move-the-cursor-back-for-taking-input-python
+  inp = input('> ')
+  cmd_history.append(inp)
+  if inp[0] == ':':
+    inp = inp[1:].strip()
+    if inp == 'exit' or inp == 'quit' or inp == 'q':
+      break
+  else:
+    t1 = time.time()
+    result = search(inp, re.compile(inp, flags=re.IGNORECASE))
+    t2 = time.time()
+    for line in result:
+      print(line)
+    print('%d results in %.2f seconds' % (len(result), t2 - t1))
